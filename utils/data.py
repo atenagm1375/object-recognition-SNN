@@ -64,8 +64,8 @@ class Data:
 
         """
         x_train, x_test, y_train, y_test = train_test_split(
-                self.data_frame["x"], self.data_frame.iloc[:, -self.n_classes:],
-                test_ratio=test_ratio, shuffle=True)
+            self.data_frame["x"], self.data_frame.iloc[:, -self.n_classes:],
+            test_ratio=test_ratio, shuffle=True)
         self.train_idx = list(x_train.index)
         self.test_idx = list(x_test.index)
         return x_train, x_test, y_train, y_test
