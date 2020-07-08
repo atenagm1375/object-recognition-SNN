@@ -17,7 +17,19 @@ from sklearn.model_selection import train_test_split
 
 
 class Data:
-    """Data class."""
+    """
+    Data class.
+
+    Attributes
+    ----------
+    path : str
+        Path to image folders.
+    classes: list of str
+        List of classes.
+    image_size: tuple, optional
+        The input image size. All images are resized to the specified size.
+
+    """
 
     def __init__(self, path, classes, image_size=(100, 100)):
         self.classes = classes
@@ -31,11 +43,12 @@ class Data:
         for obj in classes:
             cls_path = path + ("/" if path[-1] != "/" else "") + obj + "/"
             for img_path in os.listdir(cls_path):
-                img = Image.open(cls_path).resize(image_size)
+                img = Image.open(cls_path + img_path).convert("L").resize(
+                    image_size)
                 x.append(np.asarray(img))
                 y.append(obj)
 
-        self.n_samples = len(self.y)
+        self.n_samples = len(y)
 
         self.data_frame = pd.DataFrame({"x": x, "y": y}, columns=["x", "y"])
 
@@ -65,7 +78,7 @@ class Data:
         """
         x_train, x_test, y_train, y_test = train_test_split(
             self.data_frame["x"], self.data_frame.iloc[:, -self.n_classes:],
-            test_ratio=test_ratio, shuffle=True)
+            test_size=test_ratio, shuffle=True)
         self.train_idx = list(x_train.index)
         self.test_idx = list(x_test.index)
         return x_train, x_test, y_train, y_test
