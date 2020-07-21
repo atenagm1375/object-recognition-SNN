@@ -17,11 +17,13 @@ from utils.data import Data
 PATH = "../101_ObjectCategories/"
 CLASSES = ["car_side", "Faces", "Motorbikes", "panda"]
 image_size = (100, 100)
+DoG_params = {"sigma1": 3, "sigma2": 7}
 test_ratio = 0.3
 
 # %% LOAD DATA
 
 data = Data(PATH, CLASSES, image_size)
+data.apply_DoG(*DoG_params.values())
 
 x_train, x_test, y_train, y_test = data.split_train_test(test_ratio)
 

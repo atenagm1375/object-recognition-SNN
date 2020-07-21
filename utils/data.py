@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
+import cv2
 
 
 class Data:
@@ -45,7 +46,7 @@ class Data:
             for img_path in os.listdir(cls_path):
                 img = Image.open(cls_path + img_path).convert("L").resize(
                     image_size)
-                x.append(np.asarray(img))
+                x.append(np.asarray(img).reshape((1, *image_size)))
                 y.append(obj)
 
         self.n_samples = len(y)
@@ -54,6 +55,27 @@ class Data:
 
         enc = pd.get_dummies(self.data_frame["y"])
         self.data_frame = pd.concat([self.data_frame, enc], axis=1)
+
+    def apply_DoG(self, sigma_low, sigma_high):
+        """
+        Apply DoG filter on input images.
+
+        Parameters
+        ----------
+        sigma_low : int
+            The sigma value for first GaussianBlur filter.
+        sigma_high : int
+            The sigma value for second GaussianBlur filter.
+
+        Returns
+        -------
+        None.
+
+        """
+        s1, s2 = (sigma_low, sigma_low), (sigma_high, sigma_high)
+        self.data_frame["x"] = self.data_frame.x.apply(
+            lambda im: cv2.GaussianBlur(im.astype(np.float64), s1, 0) -
+            cv2.GaussianBlur(im.astype(np.float64), s2, 0))
 
     def split_train_test(self, test_ratio=0.3):
         """
@@ -66,13 +88,13 @@ class Data:
 
         Returns
         -------
-        x_train : pandas.Series
+        x_train : numpy.array
             Train image data.
-        x_test : pandas.Series
+        x_test : numpy.array
             Test image data.
-        y_train : pandas.DataFrame
+        y_train : numpy.array
             Train class labels.
-        y_test : pandas.DataFrame
+        y_test : numpy.array
             Test class labels.
 
         """
@@ -81,4 +103,8 @@ class Data:
             test_size=test_ratio, shuffle=True)
         self.train_idx = list(x_train.index)
         self.test_idx = list(x_test.index)
+        x_train = np.stack(np.array(x_train))
+        x_test = np.stack(np.array(x_test))
+        y_train = np.stack(np.array(y_train))
+        y_test = np.stack(np.array(y_test))
         return x_train, x_test, y_train, y_test
