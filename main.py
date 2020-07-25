@@ -11,7 +11,7 @@ OBJECT RECOGNITION USING A SPIKING NEURAL NETWORK.
 # %% IMPORT MODULES
 
 from utils.data import Data
-from utils.model import DeepCSNN
+from utils.model import DeepCSNN, ShallowRCSNN
 
 # %% ENVIRONMENT CONSTANTS
 
@@ -35,5 +35,10 @@ model.compile()
 model.fit(x_train, y_train, [500, 1000, 1500])
 y_pred = model.predict(x_test)
 model.classification_report(y_test, y_pred)
+
+# %% RUN SHALLOWRCSNN MODEL
+
+model = ShallowRCSNN(input_shape=(1, *image_size), n_classes=len(CLASSES))
+model.fit(x_train, y_train, 2000)
 
 # %%

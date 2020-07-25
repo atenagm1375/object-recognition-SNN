@@ -10,6 +10,7 @@ OBJECT RECOGNITION USING A SPIKING NEURAL NETWORK.
 
 
 import torch
+from cv2 import filter2D, getGaborKernel
 
 from bindsnet.network import Network
 from bindsnet.network.nodes import Input, LIFNodes
@@ -19,9 +20,98 @@ from bindsnet.encoding import rank_order
 from bindsnet.network.monitors import NetworkMonitor
 from sklearn.svm import LinearSVC
 from sklearn.metrics import confusion_matrix
-from numpy import prod
+import numpy as np
 
 from utils.visualizations import heatmap
+
+
+class ShallowRCSNN(Network):
+    """
+    Shallow rSTDP-based Convolutional Spiking Neural Network.
+
+    Attributes
+    ----------
+    input_shape : TYPE
+        DESCRIPTION.
+    n_classes : TYPE
+        DESCRIPTION.
+    dt : TYPE
+        DESCRIPTION.
+    """
+
+    def __init__(self, input_shape=(1, 100, 100), n_classes=4, dt=1.0,
+                 n_orientations=4, s1_rf_size=(5, 5),
+                 c1_rf_size=(3, 3), s2_rf_size=(17, 17)):
+        super().__init__(dt=dt)
+        self.input_shape = input_shape
+        self.n_classes = n_classes
+
+        self.n_orientations = n_orientations
+        self.s1_rf_size = s1_rf_size
+        self.c1_rf_size = c1_rf_size
+        self.s2_rf_size = s2_rf_size
+
+        self.encoding_time = int(np.prod(input_shape))
+
+    def __s1(self, x):
+        x = torch.from_numpy(x).type(torch.double)
+        feature_maps = []
+        for i in range(self.n_orientations):
+            theta = np.pi * i / self.n_orientations + np.pi / 8
+            sigma = 2 / np.sqrt(2 * np.pi)
+            kernel = getGaborKernel(self.s1_rf_size, sigma, theta, 2.5, 1)
+            kernel /= np.sqrt(sum(kernel * kernel))
+            kernel = torch.from_numpy(kernel).reshape(1, 1, *kernel.shape)
+
+            f_imgs = torch.nn.functional.conv2d(x, kernel)
+            feature_maps.append(f_imgs)
+
+        feature_maps = np.stack(feature_maps)
+
+        return torch.from_numpy(feature_maps)
+
+    def __c1(self, x):
+        pass
+
+    def __s2(self, x):
+        pass
+
+    def __c2(self, x):
+        pass
+
+    def fit(self, x, y, time, encoding_time=None):
+        """
+        Build and train the model.
+
+        Parameters
+        ----------
+        x : numpy.array
+            Training images.
+        y : numpy.array
+            Training labels.
+        time : int
+            Training time.
+        encoding_time : int, optional
+            Interval of data encoding. The default is None.
+
+        Returns
+        -------
+        self : object
+            An instance of the model.
+
+        """
+        if encoding_time is not None:
+            self.encoding_time = encoding_time
+
+        s1 = self.__s1(x)
+
+        # inp = Input(self.input_shape, traces=True)
+        # self.add_layer(inp, "C1")
+
+        # out = LIFNodes(shape=(2, 10))
+        # self.add_layer(out, "S2")
+
+        return self
 
 
 class DeepCSNN(Network):
@@ -33,7 +123,7 @@ class DeepCSNN(Network):
         self.n_classes = n_classes
 
         self.classifier = LinearSVC()
-        self.encoding_time = prod(input_shape) * dt
+        self.encoding_time = np.prod(input_shape) * dt
 
         # torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
@@ -51,7 +141,7 @@ class DeepCSNN(Network):
         inp = Input(shape=self.input_shape, traces=True)
         self.add_layer(inp, "DoG")
 
-        s1 = LIFNodes(shape=(18, m, n), traces=True)
+        s1 = LIFNodes(shape=(18, m, n), traces=True, )
         self.add_layer(s1, "conv_1")
         c1 = LIFNodes(shape=(18, m // 2, n // 2), traces=True)
         self.add_layer(c1, "pool_1")
