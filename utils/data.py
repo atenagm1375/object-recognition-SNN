@@ -12,7 +12,6 @@ import os
 
 import numpy as np
 import pandas as pd
-from PIL import Image
 from sklearn.model_selection import train_test_split
 import cv2
 
@@ -44,9 +43,10 @@ class Data:
         for obj in classes:
             cls_path = path + ("/" if path[-1] != "/" else "") + obj + "/"
             for img_path in os.listdir(cls_path):
-                img = Image.open(cls_path + img_path).convert("L").resize(
-                    image_size)
-                x.append(np.asarray(img).reshape((1, *image_size)))
+                img = cv2.imread(cls_path + img_path, 0)
+                img = cv2.resize(img, image_size,
+                                 interpolation=cv2.INTER_CUBIC)
+                x.append(img.reshape((1, *image_size)))
                 y.append(obj)
 
         self.n_samples = len(y)
@@ -74,8 +74,8 @@ class Data:
         """
         s1, s2 = (sigma_low, sigma_low), (sigma_high, sigma_high)
         self.data_frame["x"] = self.data_frame.x.apply(
-            lambda im: cv2.GaussianBlur(im.astype(np.float64), s1, 0) -
-            cv2.GaussianBlur(im.astype(np.float64), s2, 0))
+            lambda im: cv2.GaussianBlur(im, s1, 0) -
+            cv2.GaussianBlur(im, s2, 0))
 
     def split_train_test(self, test_ratio=0.3):
         """
