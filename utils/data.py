@@ -12,22 +12,89 @@ import os
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset
 import cv2
 
 
-class Data:
+class CaltechDataset(Dataset):
     """
-    Data class.
+    CaltechDataset class.
+
+    Attributes
+    ----------
+    caltech_dataset_loader : utils.data.CaltechDatasetLoader
+        An instance of CaltechDatasetLoader.
+    train : bool, optional
+        Defines whether to load the train instances or the test. The default
+        is True.
+
+    Keyword Arguments
+    -----------------
+    size_low : int
+        The size of first GaussianBlur filter.
+    size_high : int
+        The size of second GaussianBlur filter.
+
+    """
+
+    def __init__(self, caltech_dataset_loader, train=True, **kwargs):
+        self._cdl = caltech_dataset_loader
+        if kwargs:
+            self._cdl.apply_DoG(kwargs.get("size_low", 0),
+                                kwargs.get("size_high", 0))
+
+        self.dataframe = self._cdl.data_frame.iloc[
+            self._cdl.train_idx] if train else \
+            self._cdl.data_frame.iloc[self._cdl.test_idx]
+
+    def __len__(self):
+        """
+        Get number of instances in the dataset.
+
+        Returns
+        -------
+        int
+            number of instances in the dataset.
+
+        """
+        return len(self.dataframe)
+
+    def __getitem__(self, index):
+        """
+        Get value(s) at the described index.
+
+        Returns the image matrix and one-hot encoded label of the instance(s)
+        at location index.
+
+        Parameters
+        ----------
+        index : int
+            The index to return values of.
+
+        Returns
+        -------
+        tuple of two numpy.arrays
+            The tuple of image matrix and the label array.
+
+        """
+        return self.dataframe["x"].iloc[index].astype(np.float32), \
+            self.dataframe[self._cdl.classes].iloc[index].values.astype(
+                np.float32)
+
+
+class CaltechDatasetLoader:
+    """
+    Loads the Caltech dataset.
 
     Attributes
     ----------
     path : str
-        Path to image folders.
+        Path to Caltech image folders.
     classes: list of str
         List of classes.
     image_size: tuple, optional
         The input image size. All images are resized to the specified size.
+        The default is (100, 100).
 
     """
 
@@ -56,26 +123,30 @@ class Data:
         enc = pd.get_dummies(self.data_frame["y"])
         self.data_frame = pd.concat([self.data_frame, enc], axis=1)
 
-    def apply_DoG(self, sigma_low, sigma_high):
+    def apply_DoG(self, size_low, size_high):
         """
         Apply DoG filter on input images.
 
         Parameters
         ----------
-        sigma_low : int
-            The sigma value for first GaussianBlur filter.
-        sigma_high : int
-            The sigma value for second GaussianBlur filter.
+        size_low : int
+            The size of first GaussianBlur filter.
+        size_high : int
+            The size of second GaussianBlur filter.
 
         Returns
         -------
         None.
 
         """
-        s1, s2 = (sigma_low, sigma_low), (sigma_high, sigma_high)
-        self.data_frame["x"] = self.data_frame.x.apply(
-            lambda im: cv2.GaussianBlur(im, s1, 0) -
-            cv2.GaussianBlur(im, s2, 0))
+        try:
+            s1, s2 = (size_low, size_low), (size_high, size_high)
+            self.data_frame["x"] = self.data_frame.x.apply(
+                lambda im: cv2.GaussianBlur(im, s1, 0) -
+                cv2.GaussianBlur(im, s2, 0))
+        except cv2.error:
+            print("DoG failed to apply")
+            pass
 
     def split_train_test(self, test_ratio=0.3):
         """
@@ -98,13 +169,23 @@ class Data:
             Test class labels.
 
         """
-        x_train, x_test, y_train, y_test = train_test_split(
-            self.data_frame["x"], self.data_frame.iloc[:, -self.n_classes:],
-            test_size=test_ratio, shuffle=True)
-        self.train_idx = list(x_train.index)
-        self.test_idx = list(x_test.index)
-        x_train = np.stack(np.array(x_train))
-        x_test = np.stack(np.array(x_test))
-        y_train = np.stack(np.array(y_train))
-        y_test = np.stack(np.array(y_test))
+        train_df = pd.DataFrame(columns=["x", *self.classes])
+        test_df = pd.DataFrame(columns=["x", *self.classes])
+
+        for obj in self.classes:
+            obj_df = self.data_frame[self.data_frame[obj] == 1]
+            sub_df = obj_df.sample(frac=1 - test_ratio)
+            train_df = train_df.append(sub_df, ignore_index=True)
+            test_df = test_df.append(obj_df[~obj_df.isin(sub_df)].dropna(),
+                                     ignore_index=True)
+
+        train_df = train_df.sample(frac=1)
+        test_df = test_df.sample(frac=1)
+
+        self.train_idx = list(train_df.index)
+        self.test_idx = list(test_df.index)
+        x_train = np.stack(np.array(train_df.x))
+        x_test = np.stack(np.array(test_df.x))
+        y_train = np.stack(np.array(train_df[self.classes]))
+        y_test = np.stack(np.array(test_df[self.classes]))
         return x_train, x_test, y_train, y_test

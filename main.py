@@ -10,30 +10,40 @@ OBJECT RECOGNITION USING A SPIKING NEURAL NETWORK.
 
 # %% IMPORT MODULES
 
-from utils.data import Data
+import torch
+
+from utils.data import CaltechDatasetLoader, CaltechDataset
 from utils.model import DeepCSNN
+from tqdm import tqdm
 
 # %% ENVIRONMENT CONSTANTS
 
 PATH = "../101_ObjectCategories/"
 CLASSES = ["Faces", "car_side", "Motorbikes", "watch"]
 image_size = (100, 100)
-DoG_params = {"sigma1": 3, "sigma2": 7}
+DoG_params = {"size_low": 3, "size_high": 15}
 test_ratio = 0.3
 
 # %% LOAD DATA
 
-data = Data(PATH, CLASSES, image_size)
-data.apply_DoG(*DoG_params.values())
+data = CaltechDatasetLoader(PATH, CLASSES, image_size)
+data.split_train_test(test_ratio)
+train_dataset = CaltechDataset(data, **DoG_params)
+test_dataset = CaltechDataset(data, train=False, **DoG_params)
 
-x_train, x_test, y_train, y_test = data.split_train_test(test_ratio)
+trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=1,
+                                          num_workers=4, pin_memory=False)
+
+testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1,
+                                         num_workers=4, pin_memory=False)
 
 # %% RUN DEEPCSNN MODEL
 
 model = DeepCSNN(input_shape=(1, *image_size), n_classes=len(CLASSES))
 model.compile()
-model.fit(x_train, y_train, [500, 1000, 1500])
-y_pred = model.predict(x_test)
-model.classification_report(y_test, y_pred)
+
+# model.fit(x_train, y_train, [500, 1000, 1500])
+# y_pred = model.predict(x_test)
+# model.classification_report(y_test, y_pred)
 
 # %%
