@@ -14,9 +14,8 @@ import torch
 from bindsnet.network import Network
 from bindsnet.network.nodes import Input, LIFNodes
 from bindsnet.network.topology import Conv2dConnection, MaxPool2dConnection
-from bindsnet.learning import PostPre
+from bindsnet.learning import WeightDependentPostPre
 from bindsnet.encoding import rank_order
-from bindsnet.network.monitors import NetworkMonitor
 from sklearn.svm import LinearSVC
 from sklearn.metrics import confusion_matrix
 from numpy import prod
@@ -46,52 +45,96 @@ class DeepCSNN(Network):
         DeepCSNN
             The self object.
         """
-        m, n = self.input_shape[1], self.input_shape[2]
+        ht, wdth = self.input_shape[1], self.input_shape[2]
 
         inp = Input(shape=self.input_shape, traces=True)
         self.add_layer(inp, "DoG")
 
-        s1 = LIFNodes(shape=(18, m, n), traces=True)
+        s1 = LIFNodes(shape=(18, ht, wdth), traces=True)
         self.add_layer(s1, "conv_1")
-        c1 = LIFNodes(shape=(18, m // 2, n // 2), traces=True)
+
+        c1 = LIFNodes(shape=(18, ht // 2, wdth // 2), traces=True)
         self.add_layer(c1, "pool_1")
 
-        s2 = LIFNodes(shape=(24, m // 2, n // 2), traces=True)
+        s2 = LIFNodes(shape=(24, ht // 2, wdth // 2), traces=True)
         self.add_layer(s2, "conv_2")
-        c2 = LIFNodes(shape=(24, m // 4, n // 4), traces=True)
+
+        c2 = LIFNodes(shape=(24, ht // 4, wdth // 4), traces=True)
         self.add_layer(c2, "pool_2")
 
-        s3 = LIFNodes(shape=(32, m // 4, n // 4), traces=True)
+        s3 = LIFNodes(shape=(4, ht // 4, wdth // 4), traces=True)
         self.add_layer(s3, "conv_3")
-        f = LIFNodes(shape=(32, 1), traces=True)
+
+        f = LIFNodes(shape=(4, 1, 1), traces=True)
         self.add_layer(f, "global_pool")
 
-        conv1 = Conv2dConnection(inp, s1, 5, padding=2, weight_decay=0.01,
-                                 nu=0.01, update_rule=PostPre, decay=0.5)
+        w1 = 0.8 + 0.05 * torch.randn(*inp.shape, *s1.shape)
+        conv1 = Conv2dConnection(
+            source=inp,
+            target=s1,
+            kernel_size=5,
+            padding=2,
+            w=w1,
+            weight_decay=1.e-4,
+            nu=[0.003, 0.004],
+            update_rule=WeightDependentPostPre,
+            wmin=0,
+            wmax=1,
+            )
         self.add_connection(conv1, "DoG", "conv_1")
-        pool1 = MaxPool2dConnection(s1, c1, 2, 2, decay=0.5)
+
+        pool1 = MaxPool2dConnection(
+            source=s1,
+            target=c1,
+            kernel_size=2,
+            stride=2,
+            )
         self.add_connection(pool1, "conv_1", "pool_1")
 
-        conv2 = Conv2dConnection(c1, s2, 3, padding=1, weight_decay=0.01,
-                                 nu=0.01, update_rule=PostPre, decay=0.5)
+        w2 = 0.8 + 0.05 * torch.randn(*c1.shape, *s2.shape)
+        conv2 = Conv2dConnection(
+            source=c1,
+            target=s2,
+            kernel_size=3,
+            padding=1,
+            w=w2,
+            weight_decay=1.e-4,
+            nu=[0.003, 0.004],
+            update_rule=WeightDependentPostPre,
+            wmin=0,
+            wmax=1,
+            )
         self.add_connection(conv2, "pool_1", "conv_2")
-        pool2 = MaxPool2dConnection(s2, c2, 2, 2, decay=0.5)
+
+        pool2 = MaxPool2dConnection(
+            source=s2,
+            target=c2,
+            kernel_size=2,
+            stride=2,
+            )
         self.add_connection(pool2, "conv_2", "pool_2")
 
-        conv3 = Conv2dConnection(c2, s3, 3, padding=1, weight_decay=0.01,
-                                 nu=0.01, update_rule=PostPre, decay=0.5)
+        w3 = 0.8 + 0.05 * torch.randn(*c2.shape, *s3.shape)
+        conv3 = Conv2dConnection(
+            source=c2,
+            target=s3,
+            kernel_size=3,
+            padding=1,
+            w=w3,
+            weight_decay=1.e-4,
+            nu=[0.003, 0.004],
+            update_rule=WeightDependentPostPre,
+            wmin=0,
+            wmax=1,
+            )
         self.add_connection(conv3, "pool_2", "conv_3")
-        global_pool = MaxPool2dConnection(s3, f, (m // 4, n // 4), decay=0.5)
-        self.add_connection(global_pool, "conv_3", "global_pool")
 
-        monitor = NetworkMonitor(self, layers=["DoG", "conv_1", "pool_1",
-                                               "conv_2", "pool_2",
-                                               "conv_3", "global_pool"],
-                                 connections=[("DoG", "conv_1"),
-                                              ("pool_1", "conv_2"),
-                                              ("pool_2", "conv_3")],
-                                 state_vars=["w", "s"])
-        self.add_monitor(monitor, "network_monitor")
+        global_pool = MaxPool2dConnection(
+            source=s3,
+            target=f,
+            kernel_size=(ht // 4, wdth // 4),
+            )
+        self.add_connection(global_pool, "conv_3", "global_pool")
 
         return self
 
