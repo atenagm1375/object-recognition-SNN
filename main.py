@@ -14,7 +14,6 @@ import torch
 
 from utils.data import CaltechDatasetLoader, CaltechDataset
 from utils.model import DeepCSNN
-from tqdm import tqdm
 
 # %% ENVIRONMENT CONSTANTS
 
@@ -23,6 +22,7 @@ CLASSES = ["Faces", "car_side", "Motorbikes", "watch"]
 image_size = (100, 100)
 DoG_params = {"size_low": 3, "size_high": 15}
 test_ratio = 0.3
+time = 100
 
 # %% LOAD DATA
 
@@ -41,6 +41,9 @@ testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1,
 
 model = DeepCSNN(input_shape=(1, *image_size), n_classes=len(CLASSES))
 model.compile()
+
+train_pred = model.fit(trainloader, time)
+test_pred = model.predict(testloader)
 
 # model.fit(x_train, y_train, [500, 1000, 1500])
 # y_pred = model.predict(x_test)
