@@ -175,9 +175,8 @@ class CaltechDatasetLoader:
         for obj in self.classes:
             obj_df = self.data_frame[self.data_frame[obj] == 1]
             sub_df = obj_df.sample(frac=1 - test_ratio)
-            train_df = train_df.append(sub_df, ignore_index=True)
-            test_df = test_df.append(obj_df[~obj_df.isin(sub_df)].dropna(),
-                                     ignore_index=True)
+            train_df = train_df.append(sub_df)
+            test_df = test_df.append(obj_df[~obj_df.isin(sub_df)].dropna())
 
         train_df = train_df.sample(frac=1)
         test_df = test_df.sample(frac=1)

@@ -69,28 +69,33 @@ class DeepCSNN(Network):
         inp = Input(shape=self.input_shape, traces=True)
         self.add_layer(inp, "DoG")
 
-        s1 = LIFNodes(shape=(18, ht, wdth), traces=True,
-                      sum_input=True, thresh=-60)
+        s1 = LIFNodes(shape=(4, ht, wdth), traces=True,
+                      sum_input=True, thresh=-62)
         self.add_layer(s1, "conv_1")
 
-        c1 = LIFNodes(shape=(18, ht // 2, wdth // 2), traces=True,
+        c1 = LIFNodes(shape=(4, ht // 2, wdth // 2), traces=True,
                       sum_input=True, thresh=-62)
         self.add_layer(c1, "pool_1")
 
-        s2 = LIFNodes(shape=(24, ht // 2, wdth // 2), traces=True,
+        s2 = LIFNodes(shape=(16, ht // 2, wdth // 2), traces=True,
                       sum_input=True, thresh=-62)
         self.add_layer(s2, "conv_2")
 
-        c2 = LIFNodes(shape=(24, ht // 4, wdth // 4), traces=True,
-                      sum_input=True, thresh=-63)
+        c2 = LIFNodes(shape=(16, ht // 4, wdth // 4), traces=True,
+                      sum_input=True, thresh=-62)
         self.add_layer(c2, "pool_2")
 
-        s3 = LIFNodes(shape=(4, ht // 4, wdth // 4), traces=True,
-                      thresh=-63)
+        s3 = LIFNodes(shape=(self.n_classes, ht // 4, wdth // 4), traces=True,
+                      thresh=-62)
         self.add_layer(s3, "conv_3")
 
-        f = LIFNodes(shape=(4, 1, 1), traces=True, thresh=-63)
+        f = LIFNodes(shape=(self.n_classes, 1, 1), traces=True,
+                     sum_input=True, thresh=-62)
         self.add_layer(f, "global_pool")
+
+        d = LIFNodes(n=self.n_classes, traces=True,
+                     thresh=-62, sum_input=True)
+        self.add_layer(d, "decision")
 
         conv1 = Conv2dConnection(
             source=inp,
@@ -98,7 +103,7 @@ class DeepCSNN(Network):
             kernel_size=5,
             padding=2,
             weight_decay=1.e-4,
-            nu=[0.003, 0.004],
+            nu=[0.002, 0.05],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -121,7 +126,7 @@ class DeepCSNN(Network):
             kernel_size=3,
             padding=1,
             weight_decay=1.e-4,
-            nu=[0.003, 0.004],
+            nu=[0.002, 0.05],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -144,7 +149,7 @@ class DeepCSNN(Network):
             kernel_size=3,
             padding=1,
             weight_decay=1.e-4,
-            nu=[0.003, 0.004],
+            nu=[0.002, 0.05],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -155,12 +160,8 @@ class DeepCSNN(Network):
         lateral_inh3 = Connection(
             source=s3,
             target=s3,
-            w=_lateral_inhibition_weights(s3.n, 0.5, 0.01),
-            update_rule=PostPre,
-            nu=[5.e-5, 1.e-4],
-            wmin=-1,
-            wmax=1,
-            decay=0.5,
+            w=_lateral_inhibition_weights(s3.n, -0.2, 0.01),
+            decay=1,
             )
         self.add_connection(lateral_inh3, "conv_3", "conv_3")
 
@@ -172,13 +173,24 @@ class DeepCSNN(Network):
             )
         self.add_connection(global_pool, "conv_3", "global_pool")
 
-        recurrent_inh = Connection(
+        full = Connection(
             source=f,
-            target=f,
-            w=0.0005 * (torch.eye(self.n_classes) - 1),
-            decay=0.5,
+            target=d,
+            update_rule=PostPre,
+            nu=[0.02, 0.1],
+            wmin=0,
+            wmax=1,
+            decay=1,
             )
-        self.add_connection(recurrent_inh, "global_pool", "global_pool")
+        self.add_connection(full, "global_pool", "decision")
+
+        recurrent_inh = Connection(
+            source=d,
+            target=d,
+            w=0.05 * (torch.eye(self.n_classes) - 1),
+            decay=1,
+            )
+        self.add_connection(recurrent_inh, "decision", "decision")
 
         return self
 
@@ -187,47 +199,98 @@ class DeepCSNN(Network):
             monitor = Monitor(layer, ["s"], self.time)
             self.add_monitor(monitor, name)
 
+    def _monitor_weights(self):
+        for name, conn in self.connections.items():
+            if not isinstance(conn, MaxPool2dConnection):
+                monitor = Monitor(conn, ["w"], self.time)
+                self.add_monitor(monitor, name)
+
     def evaluate(self, spikes, true_labels):
+        """
+        Evaluate the network.
+
+        Parameters
+        ----------
+        spikes : torch.tensor
+            Tensor of spikes.
+        true_labels : torch.tensor
+            Tensor of true image labels.
+
+        Returns
+        -------
+        pred_labels : torch.tensor
+            Predicted labels using bindsnet.evaluation.all_activity.
+
+        """
         assignments, _, _ = assign_labels(spikes, true_labels, self.n_classes)
         pred_labels = all_activity(spikes, assignments, self.n_classes)
         return pred_labels
 
-    def fit(self, dataloader, time):
-        print("start fit...")
+    def fit(self, dataloader, time, debug=True):
+        """
+        Train the network.
+
+        Parameters
+        ----------
+        dataloader : torch.utils.data.DataLoader
+            The train DataLoader instance.
+        time : int
+            Time to encode each image and run the network on.
+        debug : bool, optional
+            Whether to show debug logs and plots or not. The default is True.
+
+        Returns
+        -------
+        object
+            An instance of the model.
+
+        """
         self.learning = True
 
         self.time = time
         n_samples = len(dataloader.dataset)
 
         self._monitor_spikes()
+        self._monitor_weights()
 
-        output_spikes = torch.ones(n_samples, time, self.n_classes)
+        # output_spikes = torch.ones(n_samples, time, self.n_classes)
         true_labels = torch.ones(n_samples)
         for i, batch in enumerate(tqdm(dataloader)):
-            print(f"iter {i}")
             true_labels[i] = batch[1].argmax()
 
             inputs = {"DoG": rank_order(batch[0], time).view(
                 time, 1, *self.input_shape)}
-            print("running network...")
             self.run(inputs, time)
-            spikes = {}
-            for name, layer in self.layers.items():
-                spikes[name] = self.monitors[name].get("s")
-            plt.ioff()
-            plot_spikes(spikes)
-            plt.show()
 
-            output_spikes[i, :, :] = self.layers["global_pool"].s.view(
-                1, time, self.n_classes)
+            if debug:
+                spikes = {}
+                for name, layer in self.layers.items():
+                    spikes[name] = self.monitors[name].get("s")
+                plt.ioff()
+                plot_spikes(spikes)
+                plt.show()
 
-        print("done running network")
+            # output_spikes[i, :, :] = self.monitors["decision"].get("s").view(
+            #     1, time, self.n_classes)
 
-        pred_labels = self.evaluate(output_spikes, true_labels)
-        print("predicted")
-        return self, pred_labels
+        # pred_labels = self.evaluate(output_spikes, true_labels)
+        return self
 
     def predict(self, dataloader):
+        """
+        Predicts the output label.
+
+        Parameters
+        ----------
+        dataloader : torch.utils.data.DataLoader
+            The DataLoader instance.
+
+        Returns
+        -------
+        pred_labels : torch.tensor
+            The predicted labels of the given data.
+
+        """
         self.learning = False
 
         n_samples = len(dataloader.dataset)
@@ -235,106 +298,17 @@ class DeepCSNN(Network):
         output_spikes = torch.ones(n_samples, self.time, self.n_classes)
         true_labels = torch.ones(n_samples)
         for i, batch in enumerate(tqdm(dataloader)):
-            true_labels[i] = batch[1]
+            true_labels[i] = batch[1].argmax()
 
             inputs = {"DoG": rank_order(batch[0], self.time).view(
                 self.time, 1, *self.input_shape)}
             self.run(inputs, self.time)
 
-            output_spikes[i, :, :] = self.layers["global_pool"].s.view(
+            output_spikes[i, :, :] = self.monitors["decision"].get("s").view(
                 1, self.time, self.n_classes)
 
         pred_labels = self.evaluate(output_spikes, true_labels)
         return pred_labels
-
-    # def __intensity_to_latency(self, x):
-    #     x = torch.from_numpy(x.reshape((1, *x.shape)))
-    #     x = x.type(torch.float)
-    #     data = rank_order(x, self.encoding_time)
-    #     return data
-
-    # def _get_features(self, x):
-    #     n_samples = x.shape[0]
-
-    #     self.layers["conv_1"].train(False)
-    #     self.layers["conv_2"].train(False)
-    #     self.layers["conv_3"].train(False)
-    #     features = []
-    #     for i in range(n_samples):
-    #         encoded_x = self.__intensity_to_latency(x[i, :, :])
-    #         inputs = {"DoG": encoded_x}
-    #         self.run(inputs=inputs, time=self.encoding_time)
-    #         features.append(self.global_pool.x)
-    #     return features
-
-    # def fit(self, x, y, times, encoding_time=None):
-    #     """
-    #     Fit the model to training data.
-
-    #     Parameters
-    #     ----------
-    #     x : numpy.array
-    #         Train images.
-    #     y : numpy.array
-    #         True labels of train images.
-    #     times : list of int
-    #         A list containing time of running the network to train each layer.
-    #     encoding_time : int, optional
-    #         Duration in which intensities are coded. The default is None.
-
-    #     Returns
-    #     -------
-    #     DeepCSNN
-    #         The self object.
-
-    #     """
-    #     if encoding_time is not None:
-    #         self.encoding_time = encoding_time
-
-    #     n_samples = x.shape[0]
-    #     features = []
-
-    #     for _ in times:
-    #         for t in range(3):
-    #             print(f"layer {t}")
-    #             truth = [False, False, False]
-    #             truth[t] = True
-    #             for i in range(n_samples):
-    #                 print(f"sample {i}")
-    #                 sample = self.__intensity_to_latency(x[i, :, :])
-    #                 print(sample.shape)
-    #                 self.layers["conv_1"].train(truth[0])
-    #                 self.layers["conv_2"].train(truth[1])
-    #                 self.layers["conv_3"].train(truth[2])
-    #                 inputs = {"DoG": sample}
-    #                 self.run(inputs=inputs, time=self.encoding_time)
-
-    #     features = self._get_features(x)
-
-    #     self.classifier.fit(features, y)
-
-    #     return self
-
-    # def predict(self, x):
-    #     """
-    #     Predict model output for given data.
-
-    #     Parameters
-    #     ----------
-    #     x : numpy.array
-    #         Test images.
-
-    #     Returns
-    #     -------
-    #     y_pred : numpy.array
-    #         Predicted values.
-
-    #     """
-    #     features = self._get_features(x)
-
-    #     y_pred = self.classifier.predict(features)
-
-    #     return y_pred
 
     def classification_report(self, y_true, y_pred):
         # TODO
