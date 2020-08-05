@@ -20,7 +20,7 @@ from bindsnet.learning import WeightDependentPostPre, PostPre
 from bindsnet.encoding import rank_order
 from bindsnet.evaluation import assign_labels, all_activity
 from bindsnet.network.monitors import Monitor
-from bindsnet.analysis.plotting import plot_spikes
+from bindsnet.analysis.plotting import plot_spikes, plot_conv2d_weights
 
 from sklearn.metrics import confusion_matrix
 from numpy import sqrt
@@ -56,45 +56,46 @@ class DeepCSNN(Network):
         # torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     def compile(self):
+        # TODO tune parameters
         """
         Build and compile the network.
 
         Returns
         -------
-        DeepCSNN
-            The self object.
+        object
+            An instance of the model.
         """
         ht, wdth = self.input_shape[1], self.input_shape[2]
 
         inp = Input(shape=self.input_shape, traces=True)
         self.add_layer(inp, "DoG")
 
-        s1 = LIFNodes(shape=(4, ht, wdth), traces=True,
-                      sum_input=True, thresh=-62)
+        s1 = LIFNodes(shape=(8, ht, wdth), traces=True, tc_decay=50,
+                      thresh=-55, trace_scale=0.2)
         self.add_layer(s1, "conv_1")
 
-        c1 = LIFNodes(shape=(4, ht // 2, wdth // 2), traces=True,
-                      sum_input=True, thresh=-62)
+        c1 = LIFNodes(shape=(8, ht // 2, wdth // 2), traces=True, tc_decay=50,
+                      thresh=-63, trace_scale=0.2)
         self.add_layer(c1, "pool_1")
 
-        s2 = LIFNodes(shape=(16, ht // 2, wdth // 2), traces=True,
-                      sum_input=True, thresh=-62)
+        s2 = LIFNodes(shape=(16, ht // 2, wdth // 2), traces=True, tc_decay=50,
+                      thresh=-58, trace_scale=0.4)
         self.add_layer(s2, "conv_2")
 
         c2 = LIFNodes(shape=(16, ht // 4, wdth // 4), traces=True,
-                      sum_input=True, thresh=-62)
+                      tc_decay=50, thresh=-63, trace_scale=0.4)
         self.add_layer(c2, "pool_2")
 
         s3 = LIFNodes(shape=(self.n_classes, ht // 4, wdth // 4), traces=True,
-                      thresh=-62)
+                      thresh=-60, trace_scale=0.8, tc_decay=100)
         self.add_layer(s3, "conv_3")
 
-        f = LIFNodes(shape=(self.n_classes, 1, 1), traces=True,
-                     sum_input=True, thresh=-62)
-        self.add_layer(f, "global_pool")
+        c3 = LIFNodes(shape=(self.n_classes, 1, 1), traces=True, tc_decay=100,
+                      thresh=-63, trace_scale=0.8)
+        self.add_layer(c3, "global_pool")
 
-        d = LIFNodes(n=self.n_classes, traces=True,
-                     thresh=-62, sum_input=True)
+        d = LIFNodes(n=self.n_classes, traces=True, tc_decay=100,
+                     thresh=-61, trace_scale=0.8)
         self.add_layer(d, "decision")
 
         conv1 = Conv2dConnection(
@@ -102,12 +103,12 @@ class DeepCSNN(Network):
             target=s1,
             kernel_size=5,
             padding=2,
-            weight_decay=1.e-4,
-            nu=[0.002, 0.05],
+            weight_decay=2.e-4,
+            nu=[0.0006, 0.008],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
-            decay=1,
+            decay=0.2,
             )
         self.add_connection(conv1, "DoG", "conv_1")
 
@@ -116,7 +117,7 @@ class DeepCSNN(Network):
             target=c1,
             kernel_size=2,
             stride=2,
-            decay=1
+            decay=0.2
             )
         self.add_connection(pool1, "conv_1", "pool_1")
 
@@ -126,11 +127,11 @@ class DeepCSNN(Network):
             kernel_size=3,
             padding=1,
             weight_decay=1.e-4,
-            nu=[0.002, 0.05],
+            nu=[0.0004, 0.008],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
-            decay=1,
+            decay=0.5,
             )
         self.add_connection(conv2, "pool_1", "conv_2")
 
@@ -139,7 +140,7 @@ class DeepCSNN(Network):
             target=c2,
             kernel_size=2,
             stride=2,
-            decay=1,
+            decay=0.5,
             )
         self.add_connection(pool2, "conv_2", "pool_2")
 
@@ -148,47 +149,48 @@ class DeepCSNN(Network):
             target=s3,
             kernel_size=3,
             padding=1,
-            weight_decay=1.e-4,
-            nu=[0.002, 0.05],
+            weight_decay=0.0,
+            nu=[0.004, 0.006],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
-            decay=1,
+            decay=0.5,
             )
         self.add_connection(conv3, "pool_2", "conv_3")
 
         lateral_inh3 = Connection(
             source=s3,
             target=s3,
-            w=_lateral_inhibition_weights(s3.n, -0.2, 0.01),
-            decay=1,
+            w=_lateral_inhibition_weights(s3.n, 0.1, 0.01),
+            decay=0.5,
             )
         self.add_connection(lateral_inh3, "conv_3", "conv_3")
 
         global_pool = MaxPool2dConnection(
             source=s3,
-            target=f,
+            target=c3,
             kernel_size=(ht // 4, wdth // 4),
-            decay=1,
+            decay=0.5,
             )
         self.add_connection(global_pool, "conv_3", "global_pool")
 
         full = Connection(
-            source=f,
+            source=c3,
             target=d,
             update_rule=PostPre,
-            nu=[0.02, 0.1],
+            weight_decay=0,
+            nu=[0.001, 0.005],
             wmin=0,
             wmax=1,
-            decay=1,
+            decay=0.5,
             )
         self.add_connection(full, "global_pool", "decision")
 
         recurrent_inh = Connection(
             source=d,
             target=d,
-            w=0.05 * (torch.eye(self.n_classes) - 1),
-            decay=1,
+            w=0.1 * (torch.eye(self.n_classes) - 1),
+            decay=0.5,
             )
         self.add_connection(recurrent_inh, "decision", "decision")
 
@@ -253,8 +255,8 @@ class DeepCSNN(Network):
         self._monitor_spikes()
         self._monitor_weights()
 
-        # output_spikes = torch.ones(n_samples, time, self.n_classes)
         true_labels = torch.ones(n_samples)
+
         for i, batch in enumerate(tqdm(dataloader)):
             true_labels[i] = batch[1].argmax()
 
@@ -270,10 +272,6 @@ class DeepCSNN(Network):
                 plot_spikes(spikes)
                 plt.show()
 
-            # output_spikes[i, :, :] = self.monitors["decision"].get("s").view(
-            #     1, time, self.n_classes)
-
-        # pred_labels = self.evaluate(output_spikes, true_labels)
         return self
 
     def predict(self, dataloader):
@@ -329,3 +327,90 @@ class DeepCSNN(Network):
         """
         mat = confusion_matrix(y_true, y_pred)
         heatmap(mat)
+        conv1 = self.monitors[("DoG", "conv_1")].get("w")[:, :, 0, :, :]
+        conv2 = self.monitors[("pool_1", "conv_2")].get("w")[:, :, 0, :, :]
+        conv3 = self.monitors[("pool_2", "conv_3")].get("w")[:, :, 0, :, :]
+        plot_conv2d_weights(conv1)
+        plt.show()
+        plot_conv2d_weights(conv2)
+        plt.show()
+        plot_conv2d_weights(conv3)
+        plt.show()
+
+
+class RCSNN(Network):
+    """RSTDP-based network."""
+
+    # TODO
+    def __init__(self, input_shape=(1, 100, 100), reward_fn=None,
+                 n_classes=4, dt=1):
+        super().__init__(dt, reward_fn=reward_fn)
+        self.input_shape = input_shape
+        self.n_classes = n_classes
+
+    def compile(self):
+        """
+        Build and compile the network.
+
+        Returns
+        -------
+        object
+            An instance of the model.
+        """
+        pass
+
+    def fit(self, dataloader, time, debug=True):
+        """
+        Train the network.
+
+        Parameters
+        ----------
+        dataloader : torch.utils.data.DataLoader
+            The train DataLoader instance.
+        time : int
+            Time to encode each image and run the network on.
+        debug : bool, optional
+            Whether to show debug logs and plots or not. The default is True.
+
+        Returns
+        -------
+        object
+            An instance of the model.
+
+        """
+        pass
+
+    def predict(self, dataloader):
+        """
+        Predicts the output label.
+
+        Parameters
+        ----------
+        dataloader : torch.utils.data.DataLoader
+            The DataLoader instance.
+
+        Returns
+        -------
+        pred_labels : torch.tensor
+            The predicted labels of the given data.
+
+        """
+        pass
+
+    def classification_report(self, y_true, y_pred):
+        """
+        Confusion matrix.
+
+        Parameters
+        ----------
+        y_true : numpy.array
+            True labels.
+        y_pred : TYPE
+            Predicted labels.
+
+        Returns
+        -------
+        None.
+
+        """
+        pass

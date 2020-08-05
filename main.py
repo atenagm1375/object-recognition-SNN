@@ -18,8 +18,8 @@ from utils.model import DeepCSNN
 # %% ENVIRONMENT CONSTANTS
 
 PATH = "../101_ObjectCategories/"
-CLASSES = ["Faces", "car_side", "Motorbikes", "watch"]
-image_size = (120, 120)
+CLASSES = ["electric_guitar", "soccer_ball", "gramophone", "cellphone"]
+image_size = (100, 100)
 DoG_params = {"size_low": 3, "size_high": 15}
 test_ratio = 0.3
 time = 100
@@ -42,7 +42,7 @@ testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1,
 model = DeepCSNN(input_shape=(1, *image_size), n_classes=len(CLASSES))
 model.compile()
 
-train_pred = model.fit(trainloader, time)
+model.fit(trainloader, time)
 test_pred = model.predict(testloader)
 
 y_true = data.data_frame.iloc[data.test_idx][CLASSES].values.argmax(axis=1)
