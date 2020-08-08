@@ -13,7 +13,7 @@ OBJECT RECOGNITION USING A SPIKING NEURAL NETWORK.
 import torch
 
 from utils.data import CaltechDatasetLoader, CaltechDataset
-from utils.model import DeepCSNN
+from utils.model import DeepCSNN, RCSNN
 
 # %% ENVIRONMENT CONSTANTS
 
@@ -40,6 +40,18 @@ testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1,
 # %% RUN DEEPCSNN MODEL
 
 model = DeepCSNN(input_shape=(1, *image_size), n_classes=len(CLASSES))
+model.compile()
+
+model.fit(trainloader, time)
+test_pred = model.predict(testloader)
+
+y_true = data.data_frame.iloc[data.test_idx][CLASSES].values.argmax(axis=1)
+
+model.classification_report(y_true, test_pred)
+
+# %%
+
+model = RCSNN(input_shape=(1, *image_size), n_classes=len(CLASSES))
 model.compile()
 
 model.fit(trainloader, time)
