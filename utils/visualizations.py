@@ -39,5 +39,5 @@ def heatmap(mat, x_label=None, y_label=None, axes=None,
     None.
 
     """
-    sns.heatmap(mat)
+    sns.heatmap(mat, annot=True)
     plt.show()
