@@ -95,8 +95,8 @@ class DeepCSNN(Network):
                      thresh=-62, trace_scale=0.8)
         self.add_layer(c3, "global_pool")
 
-        d = LIFNodes(n=self.n_classes, traces=True, tc_decay=80,
-                     thresh=-60, trace_scale=0.8)
+        d = LIFNodes(n=self.n_classes, traces=True, tc_decay=120,
+                     thresh=-58, trace_scale=0.8)
         self.add_layer(d, "decision")
 
         conv1 = Conv2dConnection(
