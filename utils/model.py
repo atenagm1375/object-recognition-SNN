@@ -23,7 +23,7 @@ from bindsnet.evaluation import assign_labels, all_activity
 from bindsnet.network.monitors import Monitor
 from bindsnet.analysis.plotting import plot_spikes, plot_conv2d_weights
 
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, accuracy_score
 from numpy import sqrt
 from scipy.spatial.distance import euclidean
 
@@ -72,7 +72,7 @@ class DeepCSNN(Network):
         self.add_layer(inp, "DoG")
 
         s1 = LIFNodes(shape=(18, ht, wdth), traces=True, tc_decay=60,
-                      thresh=-50, trace_scale=0.25)
+                      thresh=-52, trace_scale=0.25)
         self.add_layer(s1, "conv_1")
 
         c1 = IFNodes(shape=(18, ht // 2, wdth // 2), traces=True, tc_decay=60,
@@ -104,8 +104,8 @@ class DeepCSNN(Network):
             target=s1,
             kernel_size=5,
             padding=2,
-            weight_decay=0.0005,
-            nu=[0.01, 0.05],
+            weight_decay=0.0002,
+            nu=[0.003, 0.008],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -127,8 +127,8 @@ class DeepCSNN(Network):
             target=s2,
             kernel_size=3,
             padding=1,
-            weight_decay=0.0005,
-            nu=[0.01, 0.03],
+            weight_decay=0.0006,
+            nu=[0.008, 0.01],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -150,12 +150,12 @@ class DeepCSNN(Network):
             target=s3,
             kernel_size=3,
             padding=1,
-            weight_decay=0.0005,
-            nu=[0.04, 0.05],
+            weight_decay=0.002,
+            nu=[0.02, 0.06],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
-            decay=0.5,
+            decay=0.6,
             )
         self.add_connection(conv3, "pool_2", "conv_3")
 
@@ -163,7 +163,7 @@ class DeepCSNN(Network):
             source=s3,
             target=s3,
             w=_lateral_inhibition_weights(s3.n, 0.1, -0.1),
-            decay=0.5,
+            decay=0.6,
             )
         self.add_connection(lateral_inh3, "conv_3", "conv_3")
 
@@ -179,8 +179,8 @@ class DeepCSNN(Network):
             source=c3,
             target=d,
             update_rule=PostPre,
-            weight_decay=0,
-            nu=[0.001, 0.005],
+            weight_decay=0.0001,
+            nu=[0.006, 0.05],
             wmin=0,
             wmax=1,
             decay=0.5,
@@ -343,8 +343,6 @@ class DeepCSNN(Network):
         None.
 
         """
-        mat = confusion_matrix(y_true, y_pred)
-        heatmap(mat)
         conv1 = self.monitors[("DoG", "conv_1")].get("w")[:, :, 0, :, :]
         conv2 = self.monitors[("pool_1", "conv_2")].get("w")[:, :, 0, :, :]
         conv3 = self.monitors[("pool_2", "conv_3")].get("w")[:, :, 0, :, :]
@@ -354,6 +352,9 @@ class DeepCSNN(Network):
         plt.show()
         plot_conv2d_weights(conv3)
         plt.show()
+        mat = confusion_matrix(y_true, y_pred)
+        heatmap(mat)
+        print(accuracy_score(y_true, y_pred))
 
 
 class Reward(AbstractReward):
@@ -663,8 +664,6 @@ class RCSNN(Network):
         None.
 
         """
-        mat = confusion_matrix(y_true, y_pred)
-        heatmap(mat)
         conv1 = self.monitors[("DoG", "conv_1")].get("w")[:, :, 0, :, :]
         conv2 = self.monitors[("pool_1", "conv_2")].get("w")[:, :, 0, :, :]
         conv3 = self.monitors[("pool_2", "conv_3")].get("w")[:, :, 0, :, :]
@@ -674,3 +673,6 @@ class RCSNN(Network):
         plt.show()
         plot_conv2d_weights(conv3)
         plt.show()
+        mat = confusion_matrix(y_true, y_pred)
+        heatmap(mat)
+        print(accuracy_score(y_true, y_pred))
