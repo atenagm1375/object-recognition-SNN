@@ -15,7 +15,7 @@ from tqdm import tqdm
 from bindsnet.network import Network
 from bindsnet.network.nodes import Input, LIFNodes, IFNodes
 from bindsnet.network.topology import Conv2dConnection, MaxPool2dConnection
-from bindsnet.network.topology import Connection
+from bindsnet.network.topology import Connection, MeanFieldConnection
 from bindsnet.learning import WeightDependentPostPre, PostPre, MSTDPET
 from bindsnet.learning.reward import AbstractReward, MovingAvgRPE
 from bindsnet.encoding import rank_order
@@ -71,32 +71,32 @@ class DeepCSNN(Network):
         inp = Input(shape=self.input_shape, traces=True)
         self.add_layer(inp, "DoG")
 
-        s1 = LIFNodes(shape=(18, ht, wdth), traces=True, tc_decay=60,
-                      thresh=-52, trace_scale=0.25)
+        s1 = LIFNodes(shape=(9, ht, wdth), traces=True, tc_decay=10,
+                      thresh=-52, trace_scale=0.4)
         self.add_layer(s1, "conv_1")
 
-        c1 = IFNodes(shape=(18, ht // 2, wdth // 2), traces=True, tc_decay=60,
-                     thresh=-58, trace_scale=0.2)
+        c1 = IFNodes(shape=(9, ht // 2, wdth // 2), traces=True, tc_decay=8,
+                     thresh=-58, trace_scale=0.5)
         self.add_layer(c1, "pool_1")
 
-        s2 = LIFNodes(shape=(24, ht // 2, wdth // 2), traces=True, tc_decay=80,
-                      thresh=-55, trace_scale=0.4)
+        s2 = LIFNodes(shape=(16, ht // 2, wdth // 2), traces=True, tc_decay=10,
+                      thresh=-52, trace_scale=0.2)
         self.add_layer(s2, "conv_2")
 
-        c2 = IFNodes(shape=(24, ht // 4, wdth // 4), traces=True,
-                     tc_decay=80, thresh=-62, trace_scale=0.4)
+        c2 = IFNodes(shape=(16, ht // 4, wdth // 4), traces=True,
+                     tc_decay=10, thresh=-58, trace_scale=0.2)
         self.add_layer(c2, "pool_2")
 
         s3 = LIFNodes(shape=(self.n_classes, ht // 4, wdth // 4), traces=True,
-                      thresh=-57, trace_scale=0.8, tc_decay=100)
+                      thresh=-52, trace_scale=0.2, tc_decay=20)
         self.add_layer(s3, "conv_3")
 
-        c3 = IFNodes(shape=(self.n_classes, 1, 1), traces=True, tc_decay=100,
-                     thresh=-62, trace_scale=0.8)
+        c3 = IFNodes(shape=(self.n_classes, ht // 8, wdth // 8), traces=True,
+                     tc_decay=12, thresh=-58, trace_scale=0.5)
         self.add_layer(c3, "global_pool")
 
-        d = LIFNodes(n=self.n_classes, traces=True, tc_decay=120,
-                     thresh=-58, trace_scale=0.8)
+        d = LIFNodes(n=self.n_classes, traces=True, tc_decay=10,
+                     thresh=-50, trace_scale=0.2)
         self.add_layer(d, "decision")
 
         conv1 = Conv2dConnection(
@@ -104,8 +104,8 @@ class DeepCSNN(Network):
             target=s1,
             kernel_size=5,
             padding=2,
-            weight_decay=0.0002,
-            nu=[0.003, 0.008],
+            weight_decay=0.00001,
+            nu=[0.0025, 0.05],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -113,28 +113,46 @@ class DeepCSNN(Network):
             )
         self.add_connection(conv1, "DoG", "conv_1")
 
+        local1 = MeanFieldConnection(
+            source=s1,
+            target=s1,
+            decay=0.5,
+            wmin=-0.15,
+            wmax=0.15,
+            )
+        self.add_connection(local1, "conv_1", "conv_1")
+
         pool1 = MaxPool2dConnection(
             source=s1,
             target=c1,
             kernel_size=2,
             stride=2,
-            decay=0.2
+            decay=0.5
             )
         self.add_connection(pool1, "conv_1", "pool_1")
 
         conv2 = Conv2dConnection(
             source=c1,
             target=s2,
-            kernel_size=3,
-            padding=1,
-            weight_decay=0.0006,
-            nu=[0.008, 0.01],
+            kernel_size=7,
+            padding=3,
+            weight_decay=0.000015,
+            nu=[0.0025, 0.01],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
-            decay=0.5,
+            decay=0.2,
             )
         self.add_connection(conv2, "pool_1", "conv_2")
+
+        local2 = MeanFieldConnection(
+            source=s2,
+            target=s2,
+            decay=0.5,
+            wmin=-0.1,
+            wmax=0.1,
+            )
+        self.add_connection(local2, "conv_2", "conv_2")
 
         pool2 = MaxPool2dConnection(
             source=s2,
@@ -148,22 +166,29 @@ class DeepCSNN(Network):
         conv3 = Conv2dConnection(
             source=c2,
             target=s3,
-            kernel_size=3,
-            padding=1,
-            weight_decay=0.002,
-            nu=[0.02, 0.06],
+            kernel_size=11,
+            padding=5,
+            weight_decay=0.0002,
+            nu=[0.002, 0.02],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
-            decay=0.6,
+            decay=0.5,
             )
         self.add_connection(conv3, "pool_2", "conv_3")
 
-        lateral_inh3 = Connection(
+        # lateral_inh3 = Connection(
+        #     source=s3,
+        #     target=s3,
+        #     w=_lateral_inhibition_weights(s3.n, 0.1, -0.1),
+        #     decay=0.5,
+        #     )
+        lateral_inh3 = MeanFieldConnection(
             source=s3,
             target=s3,
-            w=_lateral_inhibition_weights(s3.n, 0.1, -0.1),
-            decay=0.6,
+            decay=0.5,
+            wmin=-0.1,
+            wmax=0.1,
             )
         self.add_connection(lateral_inh3, "conv_3", "conv_3")
 
@@ -179,8 +204,8 @@ class DeepCSNN(Network):
             source=c3,
             target=d,
             update_rule=PostPre,
-            weight_decay=0.0001,
-            nu=[0.006, 0.05],
+            weight_decay=0.00004,
+            nu=[0.002, 0.05],
             wmin=0,
             wmax=1,
             decay=0.5,
@@ -192,6 +217,8 @@ class DeepCSNN(Network):
             target=d,
             w=0.4 * (torch.eye(self.n_classes) - 1),
             decay=0.5,
+            wmin=-0.5,
+            wmax=0.5,
             )
         self.add_connection(recurrent_inh, "decision", "decision")
 
@@ -264,12 +291,14 @@ class DeepCSNN(Network):
 
                 inputs = {"DoG": rank_order(batch[0], time).view(
                     time, 1, *self.input_shape),
-                    "conv_1": torch.bernoulli(0.005 * torch.ones(
+                    "conv_1": torch.bernoulli(0.01 * torch.ones(
                         time, *self.layers["conv_1"].shape)).byte(),
-                    "conv_2": torch.bernoulli(0.002 * torch.ones(
+                    "conv_2": torch.bernoulli(0.01 * torch.ones(
                         time, *self.layers["conv_2"].shape)).byte(),
-                    "conv_3": torch.bernoulli(0.001 * torch.ones(
+                    "conv_3": torch.bernoulli(0.01 * torch.ones(
                         time, *self.layers["conv_3"].shape)).byte(),
+                    # "decision": torch.bernoulli(0.005 * torch.ones(
+                    #     time, *self.layers["decision"].shape)).byte()
                     }
                 self.run(inputs, time, one_step=True)
 

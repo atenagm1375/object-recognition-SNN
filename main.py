@@ -18,9 +18,9 @@ from utils.model import DeepCSNN, RCSNN
 # %% ENVIRONMENT CONSTANTS
 
 PATH = "../101_ObjectCategories/"
-CLASSES = ["electric_guitar", "soccer_ball", "gramophone", "cellphone"]
+CLASSES = ["kangaroo", "car_side", "helicopter", "grand_piano"]
 image_size = (100, 100)
-DoG_params = {"size_low": 3, "size_high": 15}
+DoG_params = {"size_low": 7, "size_high": 15}
 test_ratio = 0.3
 time = 100
 
