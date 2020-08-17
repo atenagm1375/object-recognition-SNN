@@ -72,7 +72,7 @@ class DeepCSNN(Network):
         self.add_layer(inp, "DoG")
 
         s1 = LIFNodes(shape=(9, ht, wdth), traces=True, tc_decay=10,
-                      thresh=-52, trace_scale=0.4)
+                      thresh=-52, trace_scale=0.5)
         self.add_layer(s1, "conv_1")
 
         c1 = IFNodes(shape=(9, ht // 2, wdth // 2), traces=True, tc_decay=8,
@@ -80,23 +80,23 @@ class DeepCSNN(Network):
         self.add_layer(c1, "pool_1")
 
         s2 = LIFNodes(shape=(16, ht // 2, wdth // 2), traces=True, tc_decay=10,
-                      thresh=-52, trace_scale=0.2)
+                      thresh=-52, trace_scale=0.7)
         self.add_layer(s2, "conv_2")
 
         c2 = IFNodes(shape=(16, ht // 4, wdth // 4), traces=True,
-                     tc_decay=10, thresh=-58, trace_scale=0.2)
+                     tc_decay=10, thresh=-55, trace_scale=0.85)
         self.add_layer(c2, "pool_2")
 
         s3 = LIFNodes(shape=(self.n_classes, ht // 4, wdth // 4), traces=True,
-                      thresh=-52, trace_scale=0.2, tc_decay=20)
+                      thresh=-50, trace_scale=0.4, tc_decay=10)
         self.add_layer(s3, "conv_3")
 
-        c3 = IFNodes(shape=(self.n_classes, ht // 8, wdth // 8), traces=True,
-                     tc_decay=12, thresh=-58, trace_scale=0.5)
-        self.add_layer(c3, "global_pool")
+        # c3 = IFNodes(shape=(self.n_classes, ht // 8, wdth // 8), traces=True,
+        #              tc_decay=8, thresh=-58, trace_scale=0.5)
+        # self.add_layer(c3, "global_pool")
 
         d = LIFNodes(n=self.n_classes, traces=True, tc_decay=10,
-                     thresh=-50, trace_scale=0.2)
+                     thresh=-50, trace_scale=0.7)
         self.add_layer(d, "decision")
 
         conv1 = Conv2dConnection(
@@ -136,8 +136,8 @@ class DeepCSNN(Network):
             target=s2,
             kernel_size=7,
             padding=3,
-            weight_decay=0.000015,
-            nu=[0.0025, 0.01],
+            weight_decay=0.00015,
+            nu=[0.006, 0.02],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -168,8 +168,8 @@ class DeepCSNN(Network):
             target=s3,
             kernel_size=11,
             padding=5,
-            weight_decay=0.0002,
-            nu=[0.002, 0.02],
+            weight_decay=0.0004,
+            nu=[0.007, 0.025],
             update_rule=WeightDependentPostPre,
             wmin=0,
             wmax=1,
@@ -192,16 +192,16 @@ class DeepCSNN(Network):
             )
         self.add_connection(lateral_inh3, "conv_3", "conv_3")
 
-        global_pool = MaxPool2dConnection(
-            source=s3,
-            target=c3,
-            kernel_size=(ht // 4, wdth // 4),
-            decay=0.5,
-            )
-        self.add_connection(global_pool, "conv_3", "global_pool")
+        # global_pool = MaxPool2dConnection(
+        #     source=s3,
+        #     target=c3,
+        #     kernel_size=(ht // 4, wdth // 4),
+        #     decay=0.5,
+        #     )
+        # self.add_connection(global_pool, "conv_3", "global_pool")
 
         full = Connection(
-            source=c3,
+            source=s3,
             target=d,
             update_rule=PostPre,
             weight_decay=0.00004,
@@ -210,12 +210,12 @@ class DeepCSNN(Network):
             wmax=1,
             decay=0.5,
             )
-        self.add_connection(full, "global_pool", "decision")
+        self.add_connection(full, "conv_3", "decision")
 
         recurrent_inh = Connection(
             source=d,
             target=d,
-            w=0.4 * (torch.eye(self.n_classes) - 1),
+            w=-0.75 * torch.randn(self.n_classes),
             decay=0.5,
             wmin=-0.5,
             wmax=0.5,
@@ -309,9 +309,14 @@ class DeepCSNN(Network):
                     plt.ioff()
                     plot_spikes(spikes)
                     plt.show()
-                    conv1 = self.monitors[("DoG", "conv_1")].get("w")[:, :, 0, :, :]
-                    conv2 = self.monitors[("pool_1", "conv_2")].get("w")[:, :, 0, :, :]
-                    conv3 = self.monitors[("pool_2", "conv_3")].get("w")[:, :, 0, :, :]
+                    conv1 = self.monitors[("DoG", "conv_1")].get("w")[:, :,
+                                                                      0, :, :]
+                    conv2 = self.monitors[("pool_1", "conv_2")].get("w")[:, :,
+                                                                         0, :,
+                                                                         :]
+                    conv3 = self.monitors[("pool_2", "conv_3")].get("w")[:, :,
+                                                                         0, :,
+                                                                         :]
                     plot_conv2d_weights(conv1)
                     plt.show()
                     plot_conv2d_weights(conv2)
